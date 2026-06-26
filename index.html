@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dane Construction — County Contact Maps</title>
+<script src="https://unpkg.com/d3@7.8.5/dist/d3.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson.min.js" crossorigin="anonymous"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bk:#0a0a0a;--g9:#1a1a1a;--g8:#2a2a2a;--g7:#3d3d3d;--g6:#555;--g4:#888;--g3:#bbb;--g2:#ddd;--g1:#f2f2f2;--wh:#fff;--r:6px;--rl:10px;--nc:#85B7EB;--sc:#5DCAA5}
+html,body{height:100%;overflow:hidden}
+body{font-family:"Segoe UI",system-ui,sans-serif;background:var(--g9);display:flex;flex-direction:column}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,textarea,select{font-family:inherit}
+
+/* TOP BAR */
+.topbar{background:#111;padding:.7rem 1rem;display:flex;align-items:center;gap:.8rem;border-bottom:2px solid #3d3d3d;flex-shrink:0;min-height:52px}
+.topbar h1{font-size:16px;font-weight:700;color:#ffffff}
+.topbar .sub{font-size:12px;color:#ffffff;opacity:.8}
+.live-count{margin-left:auto;font-size:12px;background:rgba(255,255,255,.1);color:var(--wh);padding:4px 12px;border-radius:12px;white-space:nowrap}
+
+/* MAP TABS */
+.map-tabs{background:var(--g9);display:flex;border-bottom:2px solid var(--g7);flex-shrink:0;overflow-x:auto}
+.map-tab{color:var(--g3);font-size:13px;font-weight:600;padding:10px 16px;border-bottom:3px solid transparent;white-space:nowrap;display:flex;align-items:center;gap:.4rem}
+.map-tab:hover{color:var(--wh);background:var(--g8)}
+.map-tab.on{color:var(--wh)}
+.tab-rename-btn{font-size:11px;color:var(--g6);padding:1px 4px;border-radius:3px;line-height:1;opacity:0;transition:.1s}
+.map-tab:hover .tab-rename-btn,.map-tab.on .tab-rename-btn{opacity:1}
+.tab-rename-btn:hover{color:var(--wh);background:rgba(255,255,255,.15)}
+
+/* MAIN — each map instance */
+.map-inst{display:none;flex:1;overflow:hidden;min-height:0}
+.map-inst.on{display:flex}
+
+/* SIDEBAR */
+.sidebar{width:305px;min-width:305px;background:var(--wh);border-right:1px solid var(--g2);display:flex;flex-direction:column;overflow:hidden}
+.sb-head{background:var(--bk);color:var(--wh);padding:.68rem .9rem;font-size:12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.sb-head .ct{font-size:11px;background:rgba(255,255,255,.12);padding:2px 9px;border-radius:12px}
+.sb-search{padding:.65rem;border-bottom:1px solid var(--g2);position:relative;flex-shrink:0}
+.sb-search input{width:100%;padding:7px 10px 7px 30px;border:1px solid var(--g2);border-radius:var(--r);font-size:13px;background:var(--g1);color:var(--g9)}
+.sb-search input:focus{outline:none;border-color:var(--g7)}
+.sr-drop{position:absolute;background:var(--wh);border:1px solid var(--g2);border-radius:var(--r);width:calc(100% - 1.3rem);z-index:50;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none;top:100%;left:.65rem}
+.sr-item{padding:8px 12px;font-size:13px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.sr-item:hover{background:var(--g1)}
+.sb-list{flex:1;overflow-y:auto}
+.sb-empty{padding:2rem 1rem;text-align:center;color:var(--g4);font-size:12px;line-height:1.8}
+.sb-empty strong{display:block;margin-bottom:.3rem;font-size:13px;color:var(--g7)}
+
+/* County groups in sidebar */
+.ci-cnty-hdr{padding:.58rem .9rem;background:var(--g1);border-bottom:1px solid var(--g2);font-size:12px;font-weight:700;color:var(--bk);display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none}
+.ci-cnty-hdr:hover{background:var(--g2)}
+.ci-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;color:#fff;flex-shrink:0}
+.ci-slots{display:none}.ci-slots.open{display:block}
+.ci-slot{padding:.5rem .9rem .5rem 1.3rem;border-bottom:.5px solid var(--g1);cursor:pointer;display:flex;align-items:center;gap:.45rem}
+.ci-slot:hover{background:#f0f7ff}.ci-slot.active{background:#e8f2ff}
+.ci-slot-num{font-size:9px;font-weight:700;color:var(--g4);min-width:18px;flex-shrink:0}
+.ci-slot-info{flex:1;min-width:0}
+.ci-slot-name{font-size:12px;font-weight:600;color:var(--bk);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ci-slot-sub{font-size:10px;color:var(--g4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slot-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.spill{font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;text-transform:uppercase;flex-shrink:0}
+.spill.nc{background:#dbeeff;color:#1a5a9a}.spill.sc{background:#d4f5ea;color:#1a6b4a}
+
+/* MAP AREA — sits between sidebar and panel */
+.map-area{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.map-toolbar{background:var(--wh);border-bottom:1px solid var(--g2);padding:.42rem .9rem;display:flex;gap:.9rem;align-items:center;font-size:12px;color:var(--g6);flex-shrink:0;flex-wrap:wrap}
+.leg{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:3px;vertical-align:middle}
+.map-svg-wrap{flex:1;position:relative;overflow:hidden}
+.map-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.8rem;font-size:13px;color:var(--g4);z-index:5;background:var(--g1)}
+.spinner{width:26px;height:26px;border:3px solid var(--g2);border-top-color:var(--g7);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.county-path{stroke:#fff;stroke-width:.4;cursor:pointer}
+.county-path:hover{opacity:.8}.county-path.selected{stroke:#111;stroke-width:1.8}
+.state-border{fill:none;stroke:rgba(0,0,0,.35);stroke-width:1.5;pointer-events:none}
+.map-tt{position:absolute;background:var(--bk);color:var(--wh);font-size:12px;padding:5px 10px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+
+/* PANEL — RIGHT SIDE, SIBLING OF map-area */
+.panel{width:300px;min-width:300px;background:var(--wh);border-left:1px solid var(--g2);display:none;flex-direction:column;overflow:hidden}
+.panel.open{display:flex}
+.panel-hd{background:var(--g9);color:var(--wh);padding:.7rem .95rem;display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0}
+.panel-county{font-size:14px;font-weight:700}.panel-state{font-size:11px;color:var(--g4);margin-top:1px}
+.panel-close{color:var(--g4);font-size:18px;line-height:1;padding:0 2px}.panel-close:hover{color:var(--wh)}
+
+/* Slot tabs inside panel */
+.slot-tabs{display:flex;background:var(--g1);border-bottom:1px solid var(--g2);flex-shrink:0;overflow-x:auto}
+.slot-tab{font-size:10.5px;font-weight:600;padding:6px 10px;border-bottom:2px solid transparent;color:var(--g6);white-space:nowrap;flex-shrink:0}
+.slot-tab:hover{color:var(--bk);background:var(--g2)}
+.slot-tab.on{color:var(--bk);border-bottom-color:var(--bk);background:var(--wh)}
+.slot-tab .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:3px;vertical-align:middle}
+
+/* Form fields */
+.panel-body{flex:1;overflow-y:auto;padding:.88rem}
+.fg{margin-bottom:.65rem}
+.fg label{display:block;font-size:10px;font-weight:700;color:var(--g6);margin-bottom:.2rem;text-transform:uppercase;letter-spacing:.3px}
+.fg input,.fg textarea,.fg select{width:100%;padding:6px 9px;border:1px solid var(--g2);border-radius:var(--r);font-size:13px;color:var(--g9);outline:none;background:var(--wh)}
+.fg input:focus,.fg textarea:focus,.fg select:focus{border-color:var(--g7)}
+.fg textarea{resize:vertical;min-height:64px}
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:.38rem}
+.panel-foot{padding:.68rem .95rem;border-top:1px solid var(--g2);display:flex;gap:.42rem;flex-shrink:0}
+.btn-save{flex:1;background:var(--g9);color:var(--wh);padding:8px;border-radius:var(--r);font-size:13px;font-weight:600}
+.btn-save:hover{background:var(--g7)}
+.btn-del{background:#c0392b;color:var(--wh);padding:8px 12px;border-radius:var(--r);font-size:13px;font-weight:600;display:none}
+.btn-del:hover{background:#e74c3c}}
+.save-st{font-size:11px;color:var(--g4);margin-top:.32rem;min-height:15px;text-align:center}
+
+/* Notif toast */
+.notif{position:fixed;bottom:1.2rem;right:1.2rem;background:var(--bk);color:var(--wh);padding:.7rem 1rem;border-radius:var(--r);font-size:13px;font-weight:500;z-index:600;opacity:0;transform:translateY(8px);transition:.22s;pointer-events:none}
+.notif.show{opacity:1;transform:none}
+</style>
+</head>
+<body>
+<!-- Password Gate -->
+<div id="pw-gate" style="position:fixed;inset:0;background:#0a0a0a;z-index:9999;display:none;align-items:center;justify-content:center;flex-direction:column;gap:1rem;min-height:100vh;min-width:100vw">
+  <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px;margin-bottom:.5rem">Dane Construction</div>
+    <div style="font-size:12px;color:#888;margin-bottom:1.5rem">County Contact Maps — Internal Use Only</div>
+    <input id="pw-input" type="password" placeholder="Enter password"
+      style="width:100%;padding:10px 12px;background:#2a2a2a;border:1px solid #555;border-radius:6px;color:#fff;font-size:14px;font-family:inherit;outline:none;margin-bottom:.75rem;box-sizing:border-box">
+    <div id="pw-error" style="color:#f87171;font-size:12px;min-height:16px;margin-bottom:.5rem"></div>
+    <button id="pw-btn" style="width:100%;background:#fff;color:#000;border:none;padding:10px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer">Enter</button>
+  </div>
+</div>
+
+<div class="topbar">
+  <div>
+    <h1>Dane Construction &mdash; County Contact Maps</h1>
+    <div class="sub">NC &amp; SC &nbsp;&middot;&nbsp; 10 material categories (click &#9998; to rename) &nbsp;&middot;&nbsp; 10 companies per county</div>
+  </div>
+  <div class="live-count" id="live-count">Loading&hellip;</div>
+</div>
+<div class="map-tabs" id="map-tabs"></div>
+
+<div class="map-inst" id="inst-concrete">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #3B82F6">
+      <span id="concrete-sb-label">Concrete Suppliers</span>
+      <span class="ct" id="concrete-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="concrete-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="concrete-sr"></div>
+    </div>
+    <div class="sb-list" id="concrete-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#3B82F6;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#3B82F6"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="concrete-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="concrete-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="concrete-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="concrete-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="concrete-p-county">County</div>
+        <div class="panel-state" id="concrete-p-state"></div>
+      </div>
+      <button class="panel-close" id="concrete-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="concrete-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="concrete-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="concrete-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="concrete-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="concrete-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="concrete-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="concrete-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="concrete-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="concrete-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="concrete-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="concrete-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="concrete-p-save">Save</button>
+      <button class="btn-del" id="concrete-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-rebar">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #EF4444">
+      <span id="rebar-sb-label">Rebar Suppliers</span>
+      <span class="ct" id="rebar-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="rebar-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="rebar-sr"></div>
+    </div>
+    <div class="sb-list" id="rebar-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#EF4444;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#EF4444"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="rebar-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="rebar-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="rebar-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="rebar-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="rebar-p-county">County</div>
+        <div class="panel-state" id="rebar-p-state"></div>
+      </div>
+      <button class="panel-close" id="rebar-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="rebar-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="rebar-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="rebar-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="rebar-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="rebar-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="rebar-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="rebar-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="rebar-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="rebar-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="rebar-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="rebar-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="rebar-p-save">Save</button>
+      <button class="btn-del" id="rebar-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-formwork">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #8B5CF6">
+      <span id="formwork-sb-label">Formwork Suppliers</span>
+      <span class="ct" id="formwork-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="formwork-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="formwork-sr"></div>
+    </div>
+    <div class="sb-list" id="formwork-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#8B5CF6;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#8B5CF6"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="formwork-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="formwork-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="formwork-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="formwork-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="formwork-p-county">County</div>
+        <div class="panel-state" id="formwork-p-state"></div>
+      </div>
+      <button class="panel-close" id="formwork-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="formwork-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="formwork-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="formwork-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="formwork-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="formwork-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="formwork-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="formwork-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="formwork-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="formwork-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="formwork-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="formwork-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="formwork-p-save">Save</button>
+      <button class="btn-del" id="formwork-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-aggregate">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #F59E0B">
+      <span id="aggregate-sb-label">Aggregate / Stone</span>
+      <span class="ct" id="aggregate-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="aggregate-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="aggregate-sr"></div>
+    </div>
+    <div class="sb-list" id="aggregate-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#F59E0B;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#F59E0B"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="aggregate-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="aggregate-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="aggregate-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="aggregate-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="aggregate-p-county">County</div>
+        <div class="panel-state" id="aggregate-p-state"></div>
+      </div>
+      <button class="panel-close" id="aggregate-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="aggregate-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="aggregate-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="aggregate-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="aggregate-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="aggregate-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="aggregate-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="aggregate-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="aggregate-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="aggregate-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="aggregate-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="aggregate-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="aggregate-p-save">Save</button>
+      <button class="btn-del" id="aggregate-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-equipment">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #10B981">
+      <span id="equipment-sb-label">Equipment Rental</span>
+      <span class="ct" id="equipment-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="equipment-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="equipment-sr"></div>
+    </div>
+    <div class="sb-list" id="equipment-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#10B981;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#10B981"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="equipment-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="equipment-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="equipment-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="equipment-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="equipment-p-county">County</div>
+        <div class="panel-state" id="equipment-p-state"></div>
+      </div>
+      <button class="panel-close" id="equipment-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="equipment-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="equipment-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="equipment-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="equipment-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="equipment-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="equipment-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="equipment-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="equipment-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="equipment-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="equipment-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="equipment-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="equipment-p-save">Save</button>
+      <button class="btn-del" id="equipment-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-subcontract">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #EC4899">
+      <span id="subcontract-sb-label">Subcontractors</span>
+      <span class="ct" id="subcontract-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="subcontract-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="subcontract-sr"></div>
+    </div>
+    <div class="sb-list" id="subcontract-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#EC4899;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#EC4899"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="subcontract-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="subcontract-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="subcontract-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="subcontract-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="subcontract-p-county">County</div>
+        <div class="panel-state" id="subcontract-p-state"></div>
+      </div>
+      <button class="panel-close" id="subcontract-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="subcontract-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="subcontract-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="subcontract-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="subcontract-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="subcontract-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="subcontract-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="subcontract-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="subcontract-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="subcontract-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="subcontract-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="subcontract-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="subcontract-p-save">Save</button>
+      <button class="btn-del" id="subcontract-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-electrical">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #06B6D4">
+      <span id="electrical-sb-label">Electrical</span>
+      <span class="ct" id="electrical-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="electrical-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="electrical-sr"></div>
+    </div>
+    <div class="sb-list" id="electrical-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#06B6D4;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#06B6D4"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="electrical-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="electrical-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="electrical-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="electrical-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="electrical-p-county">County</div>
+        <div class="panel-state" id="electrical-p-state"></div>
+      </div>
+      <button class="panel-close" id="electrical-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="electrical-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="electrical-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="electrical-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="electrical-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="electrical-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="electrical-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="electrical-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="electrical-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="electrical-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="electrical-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="electrical-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="electrical-p-save">Save</button>
+      <button class="btn-del" id="electrical-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-survey">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #84CC16">
+      <span id="survey-sb-label">Survey / Engineering</span>
+      <span class="ct" id="survey-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="survey-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="survey-sr"></div>
+    </div>
+    <div class="sb-list" id="survey-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#84CC16;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#84CC16"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="survey-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="survey-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="survey-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="survey-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="survey-p-county">County</div>
+        <div class="panel-state" id="survey-p-state"></div>
+      </div>
+      <button class="panel-close" id="survey-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="survey-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="survey-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="survey-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="survey-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="survey-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="survey-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="survey-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="survey-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="survey-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="survey-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="survey-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="survey-p-save">Save</button>
+      <button class="btn-del" id="survey-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-trucking">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #F97316">
+      <span id="trucking-sb-label">Trucking / Hauling</span>
+      <span class="ct" id="trucking-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="trucking-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="trucking-sr"></div>
+    </div>
+    <div class="sb-list" id="trucking-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#F97316;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#F97316"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="trucking-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="trucking-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="trucking-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="trucking-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="trucking-p-county">County</div>
+        <div class="panel-state" id="trucking-p-state"></div>
+      </div>
+      <button class="panel-close" id="trucking-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="trucking-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="trucking-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="trucking-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="trucking-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="trucking-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="trucking-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="trucking-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="trucking-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="trucking-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="trucking-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="trucking-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="trucking-p-save">Save</button>
+      <button class="btn-del" id="trucking-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="map-inst" id="inst-other">
+
+  <!-- LEFT: Sidebar -->
+  <div class="sidebar">
+    <div class="sb-head" style="border-left:3px solid #6B7280">
+      <span id="other-sb-label">Other Suppliers</span>
+      <span class="ct" id="other-count">loading&hellip;</span>
+    </div>
+    <div class="sb-search">
+      <input type="text" id="other-search" placeholder="Search county&hellip;" autocomplete="off">
+      <div class="sr-drop" id="other-sr"></div>
+    </div>
+    <div class="sb-list" id="other-list">
+      <div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to 10 companies.</div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Map -->
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span><span class="leg" style="background:var(--nc)"></span>North Carolina</span>
+      <span><span class="leg" style="background:var(--sc)"></span>South Carolina</span>
+      <span><span class="leg" style="background:#6B7280;opacity:.6"></span>Has contacts</span>
+      <span><span class="leg" style="background:#6B7280"></span>10/10 slots filled</span>
+      <span style="margin-left:auto;font-style:italic;font-size:11px">Click a county &#8594; add up to 10 companies</span>
+    </div>
+    <div class="map-svg-wrap">
+      <div class="map-loading" id="other-load"><div class="spinner"></div>Loading map&hellip;</div>
+      <svg id="other-svg" style="width:100%;height:100%;display:block"></svg>
+      <div class="map-tt" id="other-tt"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Contact panel (sibling of map-area, NOT inside map-svg-wrap) -->
+  <div class="panel" id="other-panel">
+    <div class="panel-hd">
+      <div>
+        <div class="panel-county" id="other-p-county">County</div>
+        <div class="panel-state" id="other-p-state"></div>
+      </div>
+      <button class="panel-close" id="other-p-close">&times;</button>
+    </div>
+    <div class="slot-tabs" id="other-p-tabs"></div>
+    <div class="panel-body">
+      <div class="fg"><label>Contact Name</label><input type="text" id="other-f-name" placeholder="e.g. Jane Smith"></div>
+      <div class="fg"><label>Company</label><input type="text" id="other-f-company" placeholder="e.g. Acme Ready Mix"></div>
+      <div class="r2">
+        <div class="fg"><label>Phone</label><input type="text" id="other-f-phone" placeholder="(704) 555-0100"></div>
+        <div class="fg"><label>Mobile</label><input type="text" id="other-f-mobile" placeholder="(704) 555-0101"></div>
+      </div>
+      <div class="fg"><label>Email</label><input type="text" id="other-f-email" placeholder="jane@example.com"></div>
+      <div class="fg"><label>Title / Role</label><input type="text" id="other-f-title" placeholder="e.g. Sales Rep"></div>
+      <div class="fg"><label>Address</label><input type="text" id="other-f-address" placeholder="123 Main St, City, NC"></div>
+      <div class="fg"><label>Status</label>
+        <select id="other-f-status">
+          <option value="active">Active — currently using</option>
+          <option value="preferred">Preferred — go-to supplier</option>
+          <option value="backup">Backup — secondary option</option>
+          <option value="inactive">Inactive — not currently using</option>
+          <option value="prospect">Prospect — not yet contacted</option>
+        </select>
+      </div>
+      <div class="fg"><label>Notes</label><textarea id="other-f-notes" placeholder="Pricing, lead times, terms, anything useful&hellip;"></textarea></div>
+      <div class="save-st" id="other-f-msg"></div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-save" id="other-p-save">Save</button>
+      <button class="btn-del" id="other-p-del">Delete</button>
+    </div>
+  </div>
+
+</div>
+<div class="notif" id="notif"></div>
+
+<script>
+
+// Storage: localStorage (works on GitHub Pages, no server needed)
+const NC='37', SC='45', NC_C='#85B7EB', SC_C='#5DCAA5', N_SLOTS=10;
+const MAPS_DEFAULT = [["concrete", "Concrete Suppliers", "#3B82F6"], ["rebar", "Rebar Suppliers", "#EF4444"], ["formwork", "Formwork Suppliers", "#8B5CF6"], ["aggregate", "Aggregate / Stone", "#F59E0B"], ["equipment", "Equipment Rental", "#10B981"], ["subcontract", "Subcontractors", "#EC4899"], ["electrical", "Electrical", "#06B6D4"], ["survey", "Survey / Engineering", "#84CC16"], ["trucking", "Trucking / Hauling", "#F97316"], ["other", "Other Suppliers", "#6B7280"]];
+
+// ── Editable category names — synced via Supabase ──
+// Stored as a single row: map_slug='_settings', fips='map_names', slot_index=0
+// Same contacts table, no schema changes needed.
+let _cachedNames = null; // in-memory cache so mapName() stays sync
+
+async function loadNames() {
+  const rows = await sbFetch('contacts?map_slug=eq._settings&fips=eq.map_names&slot_index=eq.0&select=data');
+  _cachedNames = (rows && rows[0] && rows[0].data) ? rows[0].data : {};
+}
+function getNames() {
+  return _cachedNames || {};
+}
+async function saveNames(names) {
+  _cachedNames = names;
+  await sbFetch('contacts', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({
+      map_slug: '_settings',
+      fips: 'map_names',
+      slot_index: 0,
+      data: names,
+      updated_at: new Date().toISOString()
+    })
+  });
+}
+// Returns current display name for a slug (sync — uses in-memory cache)
+function mapName(slug) {
+  const saved = getNames();
+  if (saved && saved[slug]) return saved[slug];
+  const def = MAPS_DEFAULT.find(m => m[0]===slug);
+  return def ? def[1] : slug;
+}
+function mapColor(slug) {
+  const def = MAPS_DEFAULT.find(m => m[0]===slug);
+  return def ? def[2] : '#888';
+}
+
+// ── Build tabs dynamically ──
+function buildTabs() {
+  const container = document.getElementById('map-tabs');
+  container.innerHTML = MAPS_DEFAULT.map(([slug,,color]) => {
+    const name = mapName(slug);
+    return `<button class="map-tab" id="tab-${slug}" style="border-bottom-color:transparent">
+      <span id="tab-lbl-${slug}">${name}</span>
+      <span class="tab-rename-btn" id="rename-${slug}" title="Rename this category">&#9998;</span>
+    </button>`;
+  }).join('');
+  // update sidebar labels too
+  MAPS_DEFAULT.forEach(([slug]) => {
+    const el = document.getElementById(slug+'-sb-label');
+    if (el) el.textContent = mapName(slug);
+  });
+}
+
+// ── Rename a category ──
+async function renameCategory(slug) {
+  const current = mapName(slug);
+  const newName = prompt('Rename "' + current + '" to:', current);
+  if (!newName || !newName.trim() || newName.trim() === current) return;
+  const names = getNames() || {};
+  names[slug] = newName.trim();
+  await saveNames(names);
+  // Update tab label and sidebar label immediately
+  const tabLbl = document.getElementById('tab-lbl-'+slug);
+  if (tabLbl) tabLbl.textContent = newName.trim();
+  const sbLbl = document.getElementById(slug+'-sb-label');
+  if (sbLbl) sbLbl.textContent = newName.trim();
+  notif('Renamed to: ' + newName.trim());
+}
+
+// ── State per map ──
+const MS = {};
+MAPS_DEFAULT.forEach(([slug]) => {
+  MS[slug] = { contacts:{}, counties:[], cur:null, curSlot:0, svgReady:false };
+});
+let mapsLoaded = false;
+let activeSlug = MAPS_DEFAULT[0][0];
+
+// ── Utils ──
+function fipsOf(f) { return String(f.id).padStart(5,'0'); }
+function stOf(fp) { return fp.startsWith(NC) ? 'North Carolina' : 'South Carolina'; }
+function getSlots(slug,fp) { return MS[slug].contacts[fp] || Array(N_SLOTS).fill(null); }
+function filledCount(slug,fp) {
+  return getSlots(slug,fp).filter(s => s && (s.contact_name||s.company||s.phone||s.mobile||s.email||s.notes)).length;
+}
+function fillColor(slug,fp) {
+  const n = filledCount(slug,fp);
+  if (!n) return fp.startsWith(NC) ? NC_C : SC_C;
+  const base = mapColor(slug);
+  const alpha = Math.round((0.25 + 0.75*(n/N_SLOTS)) * 255).toString(16).padStart(2,'0');
+  return base + alpha;
+}
+function notif(msg) {
+  const n = document.getElementById('notif');
+  n.textContent = msg; n.classList.add('show');
+  setTimeout(() => n.classList.remove('show'), 2500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUPABASE SETUP
+// ═══════════════════════════════════════════════════════════════════════════
+// 1. Go to https://supabase.com and create a free project
+// 2. In the Supabase dashboard, go to SQL Editor and run:
+//
+//    create table contacts (
+//      id          bigint generated always as identity primary key,
+//      map_slug    text not null,
+//      fips        text not null,
+//      slot_index  int  not null,
+//      data        jsonb,
+//      updated_at  timestamptz default now(),
+//      unique (map_slug, fips, slot_index)
+//    );
+//    alter table contacts enable row level security;
+//    create policy "public read"  on contacts for select using (true);
+//    create policy "public write" on contacts for insert with check (true);
+//    create policy "public update" on contacts for update using (true);
+//    create policy "public delete" on contacts for delete using (true);
+//
+// 3. Go to Project Settings → API and copy:
+//    - Project URL  → paste as SUPABASE_URL below
+//    - anon/public key → paste as SUPABASE_KEY below
+//
+// 4. That's it — contacts will sync across everyone who opens this file.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SUPABASE_URL = 'https://nkroyowlcbefgstmoaxt.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rcm95b3dsY2JlZmdzdG1vYXh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0NTI0MDAsImV4cCI6MjA5ODAyODQwMH0.u8qaAjhvIcz5apkNhjV05YZ7j3G8IZfjaNAEtPDpSYM';
+
+async function sbFetch(path, opts={}) {
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': opts.prefer || 'return=representation',
+      ...( opts.headers || {} )
+    },
+    ...opts
+  });
+  if (!res.ok) { console.error('Supabase error:', res.status, await res.text()); return null; }
+  return res.json().catch(() => null);
+}
+
+// ── Storage (Supabase) ──
+async function dbGetAll(tbl) {
+  // Returns {fips: [slot0, slot1, ...slot4]} for the given map slug
+  const rows = await sbFetch('contacts?map_slug=eq.' + encodeURIComponent(tbl) + '&select=fips,slot_index,data');
+  if (!rows) return {};
+  const out = {};
+  rows.forEach(r => {
+    if (!out[r.fips]) out[r.fips] = Array(N_SLOTS).fill(null);
+    out[r.fips][r.slot_index] = r.data;
+  });
+  return out;
+}
+
+async function dbUpsert(tbl, rec) {
+  // rec = {fips, slot_index, contact_name, company, phone, ...}
+  await sbFetch('contacts', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({
+      map_slug: tbl,
+      fips: rec.fips,
+      slot_index: rec.slot_index,
+      data: rec,
+      updated_at: new Date().toISOString()
+    })
+  });
+}
+
+async function dbDel(tbl, fp, idx) {
+  await sbFetch(
+    'contacts?map_slug=eq.' + encodeURIComponent(tbl) +
+    '&fips=eq.' + fp +
+    '&slot_index=eq.' + idx,
+    { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } }
+  );
+}
+
+// ── Tab switching ──
+function switchTab(slug) {
+  activeSlug = slug;
+  MAPS_DEFAULT.forEach(([s,,c]) => {
+    const tab=document.getElementById('tab-'+s);
+    const inst=document.getElementById('inst-'+s);
+    const on=(s===slug);
+    tab.classList.toggle('on',on);
+    tab.style.borderBottomColor = on ? c : 'transparent';
+    inst.classList.toggle('on',on);
+  });
+  updateLiveCount();
+  if (MS[slug].svgReady) refreshColors(slug);
+}
+
+// ── Counts ──
+function updateCount(slug) {
+  const n=Object.keys(MS[slug].contacts).filter(fp=>filledCount(slug,fp)>0).length;
+  const el=document.getElementById(slug+'-count');
+  if(el) el.textContent=n+(n===1?' county':' counties');
+}
+function updateLiveCount() {
+  const slug=activeSlug;
+  const n=Object.keys(MS[slug].contacts).filter(fp=>filledCount(slug,fp)>0).length;
+  const total=Object.keys(MS[slug].contacts).reduce((a,fp)=>a+filledCount(slug,fp),0);
+  document.getElementById('live-count').textContent=n+' counties · '+total+' contacts · '+mapName(slug);
+}
+
+// ── Colors ──
+function refreshColors(slug) {
+  MS[slug].counties.forEach(f => {
+    const fp=fipsOf(f);
+    const el=document.querySelector(`#${slug}-svg [data-fips="${fp}"]`);
+    if(el) el.setAttribute('fill',fillColor(slug,fp));
+  });
+}
+
+// ── Sidebar ──
+function renderSidebar(slug) {
+  const el=document.getElementById(slug+'-list');
+  const ms=MS[slug];
+  const color=mapColor(slug);
+  const filled=ms.counties
+    .map(f=>{const fp=fipsOf(f);return {fp,name:f.properties.name,slots:getSlots(slug,fp)};} )
+    .filter(c=>filledCount(slug,c.fp)>0)
+    .sort((a,b)=>a.name.localeCompare(b.name));
+
+  if(!filled.length){
+    el.innerHTML='<div class="sb-empty"><strong>No contacts yet</strong>Click any county on the map.<br>Each county holds up to '+N_SLOTS+' companies.</div>';
+    return;
+  }
+
+  const curFp=ms.cur?.fips;
+  el.innerHTML=filled.map(c=>{
+    const n=filledCount(slug,c.fp);
+    const stCls=c.fp.startsWith(NC)?'nc':'sc';
+    const slotsHtml=c.slots.map((s,i)=>{
+      const has=s&&(s.contact_name||s.company||s.phone);
+      const isA=(c.fp===curFp&&ms.curSlot===i)?' active':'';
+      return `<div class="ci-slot${isA}" data-open="${slug}:${c.fp}:${i}">
+        <span class="ci-slot-num">${i+1}</span>
+        <div class="ci-slot-info">
+          <div class="ci-slot-name">${has?(s.contact_name||s.company||'(unnamed)'):'— empty —'}</div>
+          ${has&&s.company&&s.contact_name?`<div class="ci-slot-sub">${s.company}</div>`:''}
+          ${has&&s.phone?`<div class="ci-slot-sub">${s.phone}</div>`:''}
+        </div>
+        <span class="slot-dot" style="background:${has?color:'#ddd'}"></span>
+      </div>`;
+    }).join('');
+    const isOpen=(c.fp===curFp);
+    return `
+      <div class="ci-cnty-hdr" data-toggle="${slug}-cs-${c.fp}">
+        <span>${c.name} County</span>
+        <div style="display:flex;align-items:center;gap:.4rem">
+          <span class="ci-badge" style="background:${color}">${n}/${N_SLOTS}</span>
+          <span class="spill ${stCls}">${c.fp.startsWith(NC)?'NC':'SC'}</span>
+        </div>
+      </div>
+      <div class="ci-slots${isOpen?' open':''}" id="${slug}-cs-${c.fp}">${slotsHtml}</div>`;
+  }).join('');
+}
+
+// ── Open panel ──
+function openPanel(slug, fp, slotIdx) {
+  const ms=MS[slug];
+  const feat=ms.counties.find(f=>fipsOf(f)===fp);
+  if(!feat) return;
+
+  ms.cur={fips:fp,county:feat.properties.name+' County',state:stOf(fp)};
+  ms.curSlot=slotIdx;
+
+  document.getElementById(slug+'-p-county').textContent=feat.properties.name+' County';
+  document.getElementById(slug+'-p-state').textContent=stOf(fp);
+
+  // Build slot tabs
+  const color=mapColor(slug);
+  document.getElementById(slug+'-p-tabs').innerHTML=
+    Array.from({length:N_SLOTS},(_,i)=>{
+      const s=getSlots(slug,fp)[i];
+      const has=s&&(s.contact_name||s.company||s.phone||s.email||s.notes);
+      return `<button class="slot-tab${i===slotIdx?' on':''}" data-stab="${slug}:${fp}:${i}">
+        <span class="dot" style="background:${has?color:'#ccc'}"></span>${i+1}${has?' ✓':''}
+      </button>`;
+    }).join('');
+
+  // Fill form fields
+  const d=getSlots(slug,fp)[slotIdx]||{};
+  document.getElementById(slug+'-f-name').value    = d.contact_name||'';
+  document.getElementById(slug+'-f-company').value = d.company||'';
+  document.getElementById(slug+'-f-phone').value   = d.phone||'';
+  document.getElementById(slug+'-f-mobile').value  = d.mobile||'';
+  document.getElementById(slug+'-f-email').value   = d.email||'';
+  document.getElementById(slug+'-f-title').value   = d.title||'';
+  document.getElementById(slug+'-f-address').value = d.address||'';
+  document.getElementById(slug+'-f-status').value  = d.status||'active';
+  document.getElementById(slug+'-f-notes').value   = d.notes||'';
+  document.getElementById(slug+'-f-msg').textContent='';
+
+  const hasFilled=!!(d.contact_name||d.company||d.phone);
+  document.getElementById(slug+'-p-del').style.display=hasFilled?'block':'none';
+
+  document.getElementById(slug+'-panel').classList.add('open');
+
+  // Highlight county
+  document.querySelectorAll(`#${slug}-svg .county-path`).forEach(p=>p.classList.remove('selected'));
+  const sel=document.querySelector(`#${slug}-svg [data-fips="${fp}"]`);
+  if(sel) sel.classList.add('selected');
+
+  renderSidebar(slug);
+}
+
+// ── Wire save/delete per map ──
+function wirePanel(slug) {
+  const tbl=slug;
+
+  document.getElementById(slug+'-p-close').onclick=()=>{
+    document.getElementById(slug+'-panel').classList.remove('open');
+    document.querySelectorAll(`#${slug}-svg .county-path`).forEach(p=>p.classList.remove('selected'));
+    MS[slug].cur=null;
+    renderSidebar(slug);
+  };
+
+  document.getElementById(slug+'-p-save').onclick=async ()=>{
+    const ms=MS[slug]; if(!ms.cur) return;
+    const rec={
+      fips:ms.cur.fips, slot_index:ms.curSlot,
+      county:ms.cur.county, state:ms.cur.state,
+      contact_name:document.getElementById(slug+'-f-name').value,
+      company:     document.getElementById(slug+'-f-company').value,
+      phone:       document.getElementById(slug+'-f-phone').value,
+      mobile:      document.getElementById(slug+'-f-mobile').value,
+      email:       document.getElementById(slug+'-f-email').value,
+      title:       document.getElementById(slug+'-f-title').value,
+      address:     document.getElementById(slug+'-f-address').value,
+      status:      document.getElementById(slug+'-f-status').value,
+      notes:       document.getElementById(slug+'-f-notes').value,
+      updated_at:  new Date().toISOString()
+    };
+    const msgEl=document.getElementById(slug+'-f-msg');
+    msgEl.textContent='Saving…';
+    try{
+      await dbUpsert(tbl,rec);
+      if(!ms.contacts[ms.cur.fips]) ms.contacts[ms.cur.fips]=Array(N_SLOTS).fill(null);
+      ms.contacts[ms.cur.fips][ms.curSlot]=rec;
+      msgEl.textContent='Saved ✓';
+      document.getElementById(slug+'-p-del').style.display='block';
+      setTimeout(()=>msgEl.textContent='',2200);
+      refreshColors(slug); updateCount(slug); updateLiveCount(); renderSidebar(slug);
+      openPanel(slug,ms.cur.fips,ms.curSlot);
+    }catch(e){msgEl.textContent='Error — check connection';}
+  };
+
+  document.getElementById(slug+'-p-del').onclick=async ()=>{
+    const ms=MS[slug]; if(!ms.cur||!confirm('Delete this contact?')) return;
+    try{
+      await dbDel(tbl,ms.cur.fips,ms.curSlot);
+      if(ms.contacts[ms.cur.fips]) ms.contacts[ms.cur.fips][ms.curSlot]=null;
+      document.getElementById(slug+'-panel').classList.remove('open');
+      document.querySelectorAll(`#${slug}-svg .county-path`).forEach(p=>p.classList.remove('selected'));
+      ms.cur=null;
+      refreshColors(slug); updateCount(slug); updateLiveCount(); renderSidebar(slug);
+      notif('Contact deleted.');
+    }catch(e){alert('Error deleting — check connection');}
+  };
+}
+
+// ── Search ──
+function wireSearch(slug) {
+  const srch=document.getElementById(slug+'-search');
+  const drop=document.getElementById(slug+'-sr');
+  const color=mapColor(slug);
+  srch.addEventListener('input',function(){
+    const q=this.value.trim().toLowerCase();
+    if(!q){drop.style.display='none';return;}
+    const hits=MS[slug].counties.filter(f=>(f.properties.name||'').toLowerCase().startsWith(q)).slice(0,12);
+    if(!hits.length){drop.style.display='none';return;}
+    drop.innerHTML=hits.map(f=>{
+      const fp=fipsOf(f),st=fp.startsWith(NC)?'NC':'SC',n=filledCount(slug,fp);
+      return `<div class="sr-item" data-open="${slug}:${fp}:0">
+        <span>${f.properties.name} County, ${st}</span>
+        ${n>0?`<span style="font-size:10px;background:${color}22;color:${color};padding:2px 7px;border-radius:8px;font-weight:700">${n}/${N_SLOTS}</span>`:''}
+      </div>`;
+    }).join('');
+    drop.style.display='block';
+  });
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('#'+slug+'-search')&&!e.target.closest('#'+slug+'-sr'))
+      drop.style.display='none';
+  });
+}
+
+// ── Build D3 map ──
+function buildMap(slug, topo) {
+  const ms=MS[slug];
+  const svgEl=document.getElementById(slug+'-svg');
+  const wrap=svgEl.parentElement;
+  const W=wrap.clientWidth||800, H=wrap.clientHeight||460;
+
+  const proj=d3.geoConicConformal()
+    .parallels([33,36]).rotate([79,0]).center([0,-0.5])
+    .fitSize([W,H],{type:'FeatureCollection',features:ms.counties});
+  const path=d3.geoPath(proj);
+
+  const stFeats=topojson.feature(topo,topo.objects.states).features
+    .filter(f=>String(f.id)===NC||String(f.id)===SC);
+
+  const svg=d3.select('#'+slug+'-svg')
+    .attr('viewBox',`0 0 ${W} ${H}`).attr('width','100%').attr('height','100%');
+
+  document.getElementById(slug+'-load').style.display='none';
+  const tt=document.getElementById(slug+'-tt');
+
+  svg.selectAll('.county-path').data(ms.counties).join('path')
+    .attr('class','county-path')
+    .attr('d',path)
+    .attr('fill',d=>fillColor(slug,fipsOf(d)))
+    .attr('data-fips',d=>fipsOf(d))
+    .on('mouseenter',(ev,d)=>{
+      const fp=fipsOf(d),n=filledCount(slug,fp),st=fp.startsWith(NC)?'NC':'SC';
+      tt.style.display='block';
+      tt.textContent=d.properties.name+' County, '+st+(n>0?' — '+n+'/'+N_SLOTS+' contacts':'');
+    })
+    .on('mousemove',ev=>{
+      const r=wrap.getBoundingClientRect();
+      tt.style.left=(ev.clientX-r.left+14)+'px';
+      tt.style.top=(ev.clientY-r.top-36)+'px';
+    })
+    .on('mouseleave',()=>tt.style.display='none')
+    .on('click',(ev,d)=>openPanel(slug,fipsOf(d),0));
+
+  svg.selectAll('.state-border').data(stFeats).join('path')
+    .attr('class','state-border').attr('d',path);
+
+  ms.svgReady=true;
+}
+
+// ── Single delegated click handler ──
+document.addEventListener('click', e => {
+  // Tab click
+  const tabEl = e.target.closest('.map-tab');
+  if (tabEl) {
+    const slug = tabEl.id.replace('tab-','');
+    // Check if rename button was clicked
+    if (e.target.closest('.tab-rename-btn')) {
+      renameCategory(slug);
+      return;
+    }
+    switchTab(slug);
+    return;
+  }
+  // Slot tab inside panel
+  const stab = e.target.closest('[data-stab]');
+  if (stab) {
+    const [slug,fp,i] = stab.getAttribute('data-stab').split(':');
+    openPanel(slug,fp,parseInt(i));
+    return;
+  }
+  // Open from sidebar or search dropdown
+  const openEl = e.target.closest('[data-open]');
+  if (openEl) {
+    const [slug,fp,i] = openEl.getAttribute('data-open').split(':');
+    openPanel(slug,fp,parseInt(i));
+    const drop=document.getElementById(slug+'-sr');
+    if(drop) drop.style.display='none';
+    const srch=document.getElementById(slug+'-search');
+    if(srch) srch.value='';
+    return;
+  }
+  // Toggle county section in sidebar
+  const togEl = e.target.closest('[data-toggle]');
+  if (togEl && !e.target.closest('[data-open]')) {
+    const id=togEl.getAttribute('data-toggle');
+    const slots=document.getElementById(id);
+    if(slots) slots.classList.toggle('open');
+    return;
+  }
+});
+
+// ── Init ──
+async function init() {
+  try {
+    // Load names first so tabs render with correct labels
+    await loadNames();
+  } catch(e) { console.warn('Could not load category names:', e); }
+  buildTabs();
+  try {
+    const topo = await d3.json('https://unpkg.com/us-atlas@3/counties-10m.json');
+    const all  = topojson.feature(topo,topo.objects.counties).features;
+    const filtered = all.filter(f=>{ const fp=fipsOf(f); return fp.startsWith(NC)||fp.startsWith(SC); });
+
+    // Load all 10 maps from Supabase (non-fatal if credentials not set yet)
+    let results = MAPS_DEFAULT.map(()=>({}));
+    try {
+      results = await Promise.all(MAPS_DEFAULT.map(([slug])=>dbGetAll(slug)));
+    } catch(e) {
+      console.warn('Could not load contacts from Supabase — fill in SUPABASE_URL and SUPABASE_KEY:', e);
+    }
+
+    MAPS_DEFAULT.forEach(([slug],i)=>{
+      MS[slug].contacts=results[i]||{};
+      MS[slug].counties=filtered;
+      buildMap(slug,topo);
+      updateCount(slug);
+      renderSidebar(slug);
+      wirePanel(slug);
+      wireSearch(slug);
+    });
+
+    switchTab(MAPS_DEFAULT[0][0]);
+
+  }catch(err){
+    MAPS_DEFAULT.forEach(([slug])=>{
+      const el=document.getElementById(slug+'-load');
+      if(el) el.innerHTML='<div style="color:#c0392b;font-size:13px;padding:1rem;text-align:center">Could not load map data.</div>';
+    });
+    console.error(err);
+  }
+}
+
+(function(){
+  // ── SET YOUR PASSWORD HERE ──────────────────────────────
+  var PASSWORD = 'DaneConstruction1995';
+  // ───────────────────────────────────────────────────────
+  var gate = document.getElementById('pw-gate');
+  var input = document.getElementById('pw-input');
+  var btn = document.getElementById('pw-btn');
+  var err = document.getElementById('pw-error');
+
+  function startApp() {
+    gate.style.display = 'none';
+    document.body.style.overflow = '';
+    // Wait for d3/topojson then init
+    (function waitForD3() {
+      if (typeof d3 !== 'undefined' && typeof topojson !== 'undefined') {
+        init();
+      } else {
+        setTimeout(waitForD3, 50);
+      }
+    })();
+  }
+
+  // Check if already authenticated this session
+  if (sessionStorage.getItem('dc_auth') === '1') { startApp(); return; }
+  // Not authenticated — show gate and lock scroll
+  gate.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  function attempt() {
+    if (input.value === PASSWORD) {
+      sessionStorage.setItem('dc_auth','1');
+      startApp();
+    } else {
+      err.textContent = 'Incorrect password. Try again.';
+      input.value = '';
+      input.focus();
+      setTimeout(function(){ err.textContent=''; }, 3000);
+    }
+  }
+  btn.onclick = attempt;
+  input.addEventListener('keydown', function(e){ if(e.key==='Enter') attempt(); });
+  input.focus();
+})();
+</script>
+</body>
+</html>
